@@ -1,0 +1,119 @@
+/**
+ * To use this client just import the "getApiServiceProvider" and concat it to your providers
+ * additionally you have to import the peer dependency HttpClient
+ *
+ * ...
+ * import { getApiServiceProvider } from '.{{ .BasePath }}/api.service.ts'
+ * import { HttpClientModule } from '@angular/common/http';
+ *
+ * @NgModule({
+ *   imports: [
+ *        HttpClientModule,
+ *       ...
+ *   ],
+ *   declarations: [ ... ],
+ *   providers: [ ... ].concat(getApiServiceProvider("https://url.of.my.endpoint")),
+ *   bootstrap: [ ... ]
+ * })
+ * ...
+ */
+
+import { Injectable, Inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+export type Maybe<T> = T | null | undefined;
+
+export type Scalars = {
+{{ range $i,$e := .Models.Scalars }}    {{ $e.Name }}: {{ scalarNameFor $e.Name }}
+{{ end }}};
+{{ range $i, $obj := .Models.Objects }}
+export type {{ $obj.Name }} ={{ range $k, $iFace := $obj.ImplementsInterfaces}} {{ $iFace }} &{{end}} {
+    __typename?: '{{ $obj.Name }}';
+{{ range $j, $field := $obj.Fields }}    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $obj.Fields ) }}
+{{ end }}{{end}}
+};
+{{ end }}{{ range $i, $obj := .Models.Interfaces }}
+export type {{ $obj.Name }} ={{ range $k, $iFace := $obj.ImplementsInterfaces}} {{ $iFace }} &{{end}} {
+{{ range $j, $field := $obj.Fields }}    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $obj.Fields ) }}
+{{ end }}{{end}}
+};
+{{end}}{{ range $i, $enum := .Models.Enums }}
+export enum {{ $enum.Name }} {
+{{ range $j, $value := $enum.Values}}    {{ $value }} = '{{ $value }}',
+{{ end }}}
+{{ end }}
+{{- range $i, $union := .Models.Unions }}
+export type {{ $union.Name }} ={{ range $j, $member := $union.UnionMemberTypes }} {{ if $j }}| {{ end }}{{ $member }}{{ end }}
+{{ end }}
+export type GraphQLErrorLocation = {
+    line: number;
+    column: number;
+};
+
+export type GraphQLError = {
+    message: string;
+    locations: GraphQLErrorLocation[];
+    path: (string | number)[]
+};
+
+export type GraphQLResponse = {
+    errors?: GraphQLError[];
+};
+{{ range $i, $operationData := .OperationsData }}
+export type {{ $operationData.Operation.Name }}Response = GraphQLResponse & {
+    data: {
+{{ range $j, $field := $operationData.Operation.ResponseFields }}        {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $operationData.Operation.ResponseFields ) }}
+{{ end }}{{end}}
+    };
+};
+{{ end -}}
+{{ range $i, $input := .Models.Inputs }}
+export type {{ $input.Name }} = {
+{{- range $j, $field := $input.Fields }}
+    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end -}};{{ end }}
+};
+{{ end }}
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ApiService {
+
+  constructor(private httpClient: HttpClient, @Inject('API_ENDPOINT: {{ .App }}') private endpoint: string) { }
+
+  {{- range $i, $operationData := .OperationsData }}
+  public {{ $operationData.Operation.OperationPrefix }}{{ $operationData.Operation.Name }}({{ template "variables" $operationData.Operation.Variables }}): Observable<{{ $operationData.Operation.Name }}Response> {
+    {{- if $operationData.Operation.HasVariables }}
+    const variables = {
+        {{- range $j, $variable := $operationData.Operation.Variables }}
+        {{ $variable.Name }},
+        {{- end }}
+    };
+    const params = `?variables=${encodeURIComponent(JSON.stringify(variables))}`;
+    {{- end }}
+    return this.httpClient.get<{{ $operationData.Operation.Name }}Response>(`${this.endpoint}{{ $operationData.Endpoint }}{{ if $operationData.Operation.HasVariables }}${params}{{ end }}`);
+  }
+
+  {{- end }}
+}
+
+const ApiServiceFactory = (httpClient: HttpClient, endpoint: string) => {
+  return new ApiService(httpClient, endpoint);
+};
+
+const ApiServiceProvider = {
+  provide: ApiService,
+  useFactory: ApiServiceFactory,
+  deps: [HttpClient, [new Inject('API_ENDPOINT: {{ .App }}')]]
+};
+
+export const getApiServiceProvider = (endpoint: string) => {
+  return [
+    { provide: 'API_ENDPOINT: {{ .App }}', useValue: endpoint },
+    ApiServiceProvider
+  ];
+};
+
+{{- define "variables" }}{{ $variables := . }}{{ range $i,$variable := $variables }}{{ $variable.Name }}{{ if not $variable.IsRequired }}?{{ end }}: {{ typeNameFor $variable.TypeName }}{{ if not ( last $i $variables ) }},{{ end }}{{ end }}{{ end }}
+
