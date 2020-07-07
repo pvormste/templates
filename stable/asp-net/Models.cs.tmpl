@@ -1,0 +1,28 @@
+using System.Collections.Generic;
+
+#nullable enable
+namespace Wundergraph.Generated.{{ title .App }}
+{ {{- range $i, $obj := .Models.Objects }}
+
+    public class {{ title $obj.Name }}
+    {
+        {{- range $j, $field := $obj.Fields }}
+        public {{ toType $field }} {{ title $field.Name }} { get; set; }
+        {{- end}}
+    }{{ end }}{{ range $i, $enum := .Models.Enums }}
+
+    public enum CacheControlScope
+    {
+        {{- range $j, $value := $enum.Values}}
+        {{ camelcase $value }},
+        {{- end }}
+    }{{ end }}{{ range $i, $input := .Models.Inputs }}
+
+    public class {{ title $input.Name }}
+    {
+        {{- range $j, $field := $input.Fields }}
+        public {{ toType $field }} {{ title $field.Name }} { get; set; }
+        {{- end }}
+    }{{ end }}
+
+}

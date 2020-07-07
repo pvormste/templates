@@ -1,0 +1,70 @@
+export type Maybe<T> = T | null;
+
+export type Scalars = {
+{{ range $i,$e := .Models.Scalars }}    {{ $e.Name }}: {{ scalarNameFor $e.Name }}
+{{ end }}};
+{{ range $i, $obj := .Models.Objects }}
+export type {{ $obj.Name }} ={{ range $k, $iFace := $obj.ImplementsInterfaces}} {{ $iFace }} &{{end}} {
+    __typename?: '{{ $obj.Name }}';
+{{ range $j, $field := $obj.Fields }}    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $obj.Fields ) }}
+{{ end }}{{end}}
+};
+{{ end }}{{ range $i, $obj := .Models.Interfaces }}
+export type {{ $obj.Name }} ={{ range $k, $iFace := $obj.ImplementsInterfaces}} {{ $iFace }} &{{end}} {
+{{ range $j, $field := $obj.Fields }}    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $obj.Fields ) }}
+{{ end }}{{end}}
+};
+{{end}}{{ range $i, $enum := .Models.Enums }}
+export enum {{ $enum.Name }} {
+{{ range $j, $value := $enum.Values}}    {{ $value }} = '{{ $value }}',
+{{ end }}}
+{{ end }}
+{{- range $i, $union := .Models.Unions }}
+export type {{ $union.Name }} ={{ range $j, $member := $union.UnionMemberTypes }} {{ if $j }}| {{ end }}{{ $member }}{{ end }}
+{{ end }}
+export type GraphQLErrorLocation = {
+    line: number;
+    column: number;
+};
+
+export type GraphQLError = {
+    message: string;
+    locations: GraphQLErrorLocation[];
+    path: (string | number)[]
+};
+
+export type GraphQLResponse = {
+    errors?: GraphQLError[];
+};
+{{ range $i, $operationData := .OperationsData }}
+export type {{ $operationData.Operation.Name }}Response = GraphQLResponse & {
+    data: {
+{{ range $j, $field := $operationData.Operation.ResponseFields }}        {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $operationData.Operation.ResponseFields ) }}
+{{ end }}{{end}}
+    };
+};
+{{ end -}}
+{{ range $i, $input := .Models.Inputs }}
+export type {{ $input.Name }} = {
+{{- range $j, $field := $input.Fields }}
+    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end -}};{{ end }}
+};
+{{ end }}
+export class Client {
+    private readonly endpoint: string
+    constructor(endpoint: string) {
+        this.endpoint = endpoint;
+    }{{ range $i, $operationData := .OperationsData }}
+    {{ $operationData.Operation.OperationPrefix }}{{ $operationData.Operation.Name }} = async ({{ template "variables" $operationData.Operation.Variables }}): Promise<{{ $operationData.Operation.Name }}Response> => {
+{{- if $operationData.Operation.HasVariables }}
+        const variables = {
+{{- range $j, $variable := $operationData.Operation.Variables }}
+            {{ $variable.Name }},{{ end }}
+        };
+        const params = "?variables=" + encodeURIComponent(JSON.stringify(variables)){{ end }}
+        const response = await fetch(this.endpoint + "{{ $operationData.Endpoint }}"{{ if $operationData.Operation.HasVariables }} + params{{ end }});
+        return response.json();
+    }{{ end }}
+}
+
+{{- define "variables" }}{{ $variables := . }}{{ range $i,$variable := $variables }}{{ $variable.Name }}{{ if not $variable.IsRequired }}?{{ end }}: {{ typeNameFor $variable.TypeName }}{{ if not ( last $i $variables ) }},{{ end }}{{ end }}{{ end -}}

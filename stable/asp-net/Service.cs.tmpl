@@ -1,0 +1,28 @@
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading.Tasks;
+
+namespace Wundergraph.Generated.{{ title .App }}
+{
+    public class {{ title .App }}Service : I{{ title .App }}Service
+    {
+        readonly HttpClient _httpClient;
+        readonly JsonSerializerOptions _jsonOptions;
+
+        public {{ title .App }}Service(HttpClient httpClient)
+        {
+            _httpClient = httpClient;
+            _jsonOptions = new JsonSerializerOptions()
+            {
+                PropertyNameCaseInsensitive = true,
+            };
+        }{{ range $i, $operationData := .OperationsData }}
+
+        public async Task<Response<{{ title $operationData.Operation.Name }}Response>> Get{{ title $operationData.Operation.Name }}Async()
+        {
+            var response = await _httpClient.GetAsync("{{ $operationData.Endpoint }}");
+            var body = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<Response<{{ title $operationData.Operation.Name }}Response>>(body, _jsonOptions);
+        }{{ end }}
+    }
+}

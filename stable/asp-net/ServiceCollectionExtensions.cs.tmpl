@@ -1,0 +1,14 @@
+using System;
+using System.Net.Http;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Wundergraph.Generated.{{ .App }}
+{
+    public static class ServiceCollectionExtensions
+    {
+        public static void Add{{ .App }}Service(this IServiceCollection services, Action<HttpClient> configureClient)
+        {
+            services.AddHttpClient<I{{ .App }}Service, {{ .App }}Service>(configureClient);
+        }
+    }
+}

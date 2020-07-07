@@ -1,0 +1,31 @@
+using System.Collections.Generic;
+
+#nullable enable
+namespace Wundergraph.Generated.{{ title .App }}
+{
+    public class Response<T>
+    {
+        public T? Data { get; set; }
+        public List<ResponseError>? Errors { get; set; }
+    }
+
+    public class ResponseError
+    {
+        public string Message { get; set; }
+        public List<ErrorLocation>? Locations { get; set; }
+        public List<string>? Path { get; set; }
+    }
+
+    public class ErrorLocation
+    {
+        public int Line { get; set; }
+        public int Column { get; set; }
+    }{{ range $i, $operationData := .OperationsData }}
+
+    public class {{ title $operationData.Operation.Name }}Response
+    {
+        {{- range $j, $field := $operationData.Operation.ResponseFields }}
+        public {{ toType $field }} {{ title $field.Name }} { get; set; }
+        {{- end }}
+    }{{ end }}
+}
