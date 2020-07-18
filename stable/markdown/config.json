@@ -1,0 +1,5 @@
+{
+    "scalarFallback": "%s",
+    "nullableType":   "",
+    "listType":       "[%s]"
+  }
