@@ -10,4 +10,4 @@
     "scalarFallback": "any",
     "nullableType":   "Maybe<%s>",
     "listType":       "Array<%s>"
-  }
+}
