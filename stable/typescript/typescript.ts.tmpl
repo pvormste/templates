@@ -1,3 +1,7 @@
+{{ if .Auth.Enabled -}}
+import base64 from 'base64-js';
+
+{{ end -}}
 export type Maybe<T> = T | null;
 
 export type Scalars = {
@@ -50,21 +54,137 @@ export type {{ $input.Name }} = {
     {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end -}};{{ end }}
 };
 {{ end }}
+interface FetchConfig {
+    operation_name: string
+    requires_authentication: boolean
+    variables?: any
+}
+{{ if .Auth.Enabled }}
+declare global {
+    interface Window {
+        msCrypto: Crypto;
+    }
+}
+{{- end }}
+
 export class Client {
-    private readonly endpoint: string
     constructor(endpoint: string) {
-        this.endpoint = endpoint;
-    }{{ range $i, $operationData := .OperationsData }}
-    {{ $operationData.Operation.OperationPrefix }}{{ $operationData.Operation.Name }} = async ({{ template "variables" $operationData.Operation.Variables }}): Promise<{{ $operationData.Operation.Name }}Response> => {
-{{- if $operationData.Operation.HasVariables }}
-        const variables = {
-{{- range $j, $variable := $operationData.Operation.Variables }}
-            {{ $variable.Name }},{{ end }}
-        };
-        const params = "?variables=" + encodeURIComponent(JSON.stringify(variables)){{ end }}
-        const response = await fetch(this.endpoint + "{{ $operationData.Endpoint }}"{{ if $operationData.Operation.HasVariables }} + params{{ end }});
+        this.issuer = endpoint + "/{{ .ApplicationID }}";
+    }
+    private readonly issuer: string
+{{- if .Client.IsDefined }}
+    private readonly client_id = "{{ .Client.ID }}";
+    private readonly application_id = "{{ .ApplicationID }}";
+    private readonly redirect_uri = "{{ .Client.RedirectURI }}";
+    private readonly scopes = "openid+profile+email+offline_access";
+    private access_token: string = "";
+    private refresh_token: string = "";
+{{- end }}
+    private doFetch = async (config: FetchConfig) => {
+        let params = config.variables === undefined ? "" :
+            "?variables=" + encodeURIComponent(JSON.stringify(config.variables))
+        const response = await fetch(this.issuer + "/" + config.operation_name + params,{
+            headers: !config.requires_authentication ? undefined : {
+                Authorization: "Bearer " + this.access_token,
+            },
+        });
         return response.json();
+    }{{ range $i, $operationData := .OperationsData }}
+    public {{ $operationData.Operation.OperationPrefix }}{{ $operationData.Operation.Name }} = async ({{ template "variables" $operationData.Operation.Variables }}): Promise<{{ $operationData.Operation.Name }}Response> => {
+        const config: FetchConfig = {
+            operation_name: "{{ $operationData.Operation.Name }}",
+            requires_authentication: {{ $operationData.Operation.Auth.Enabled }},
+{{- if $operationData.Operation.HasVariables }}
+            variables: {
+{{- range $j, $variable := $operationData.Operation.Variables }}
+                {{ $variable.Name }},{{ end }}
+            },{{ end }}
+        };
+        return this.doFetch(config);
     }{{ end }}
+{{- if .Client.IsDefined }}
+    public login = async () => {
+        const verifier = this.generateCodeVerifier(96);
+        const hash = await this.sha256(verifier);
+        let hashBytes = new Uint8Array(hash);
+        const challenge = base64.fromByteArray(hashBytes)
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        sessionStorage.setItem("verifier", verifier);
+        window.location.assign(`${this.issuer}/${this.application_id}/_auth/auth?client_id=${this.client_id}&scope=${this.scopes}&redirect_uri=${this.redirect_uri}&response_type=code&code_challenge=${challenge}`)
+    }
+    private generateRandomData = (len: number) => {
+        let array = null;
+        let crypto = window.crypto || window.msCrypto;
+        if (crypto && crypto.getRandomValues && window.Uint8Array) {
+            array = new Uint8Array(len);
+            crypto.getRandomValues(array);
+            return array;
+        }
+        array = new Array(len);
+        for (let j = 0; j < array.length; j++) {
+            array[j] = Math.floor(256 * Math.random());
+        }
+        return array;
+    }
+    private generateCodeVerifier = (len: number) => {
+        return this.generateRandomString(len, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
+    }
+    private generateRandomString = (len: number, alphabet: string) => {
+        let randomData = this.generateRandomData(len);
+        let chars = new Array(len);
+        for (let i = 0; i < len; i++) {
+            chars[i] = alphabet.charCodeAt(randomData[i] % alphabet.length);
+        }
+        return String.fromCharCode.apply(null, chars);
+    }
+    public exchangeCodeForToken = async (code: string) => {
+        let headers = new Headers();
+        headers.append("content-type", "application/x-www-form-urlencoded");
+        let urlEncoded = new URLSearchParams();
+        urlEncoded.append("grant_type", "authorization_code");
+        urlEncoded.append("client_id", this.client_id);
+        urlEncoded.append("code", code);
+        urlEncoded.append("redirect_uri", this.redirect_uri);
+        urlEncoded.append("code_verifier", sessionStorage.getItem("verifier") || "");
+        urlEncoded.append("code_challenge_method", "S256");
+        const response = await fetch(`${this.issuer}/${this.application_id}/_auth/token`, {
+            method: 'POST',
+            headers: headers,
+            body: urlEncoded,
+            redirect: "follow"
+        });
+        const data = await response.json()
+        console.log("login data", data);
+        this.access_token = data.access_token;
+        this.refresh_token = data.refresh_token;
+        this.is_logged_in = true;
+    }
+    private refresh = async (refreshToken: string) => {
+        let headers = new Headers();
+        headers.append("content-type", "application/x-www-form-urlencoded");
+        let urlEncoded = new URLSearchParams();
+        urlEncoded.append("grant_type", "refresh_token");
+        urlEncoded.append("client_id", this.client_id);
+        urlEncoded.append("refresh_token", refreshToken);
+        const response = await fetch(`${this.issuer}/${this.application_id}/_auth/token`, {
+            method: 'POST',
+            headers: headers,
+            body: urlEncoded,
+            redirect: "follow"
+        });
+        const data = await response.json();
+        this.refresh_token = data.refresh_token;
+        this.access_token = data.access_token;
+        this.is_logged_in = true;
+    }
+    private sha256 = async (message: string) => {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(message);
+        return await crypto.subtle.digest('SHA-256', data);
+    }
+    {{- end }}
 }
 
 {{- define "variables" }}{{ $variables := . }}{{ range $i,$variable := $variables }}{{ $variable.Name }}{{ if not $variable.IsRequired }}?{{ end }}: {{ typeNameFor $variable.TypeName }}{{ if not ( last $i $variables ) }},{{ end }}{{ end }}{{ end -}}
