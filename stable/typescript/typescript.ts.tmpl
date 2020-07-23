@@ -114,6 +114,13 @@ export class Client {
         sessionStorage.setItem("verifier", verifier);
         window.location.assign(`${this.issuer}/${this.application_id}/_auth/auth?client_id=${this.client_id}&scope=${this.scopes}&redirect_uri=${this.redirect_uri}&response_type=code&code_challenge=${challenge}`)
     }
+    public isLoggedIn = () => {
+        return this.access_token !== "";
+    }
+    public logout = () => {
+        this.access_token = "";
+        this.refresh_token = "";
+    }
     private generateRandomData = (len: number) => {
         let array = null;
         let crypto = window.crypto || window.msCrypto;
@@ -159,7 +166,6 @@ export class Client {
         console.log("login data", data);
         this.access_token = data.access_token;
         this.refresh_token = data.refresh_token;
-        this.is_logged_in = true;
     }
     private refresh = async (refreshToken: string) => {
         let headers = new Headers();
@@ -177,7 +183,6 @@ export class Client {
         const data = await response.json();
         this.refresh_token = data.refresh_token;
         this.access_token = data.access_token;
-        this.is_logged_in = true;
     }
     private sha256 = async (message: string) => {
         const encoder = new TextEncoder();
