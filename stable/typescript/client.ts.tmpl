@@ -69,21 +69,21 @@ declare global {
 
 export class Client {
     constructor(endpoint: string) {
-        this.issuer = endpoint + "/{{ .ApplicationID }}";
+        this.issuer = endpoint;
     }
     private readonly issuer: string
 {{- if .Client.IsDefined }}
     private readonly client_id = "{{ .Client.ID }}";
     private readonly application_id = "{{ .ApplicationID }}";
-    private readonly redirect_uri = "{{ .Client.RedirectURI }}";
     private readonly scopes = "openid+profile+email+offline_access";
     private access_token: string = "";
     private refresh_token: string = "";
+    private refresh_timeout_id: number;
 {{- end }}
     private doFetch = async (config: FetchConfig) => {
         let params = config.variables === undefined ? "" :
             "?variables=" + encodeURIComponent(JSON.stringify(config.variables))
-        const response = await fetch(this.issuer + "/" + config.operation_name + params,{
+        const response = await fetch(this.issuer + "/" + this.application_id + "/" + config.operation_name + params, {
             headers: !config.requires_authentication ? undefined : {
                 Authorization: "Bearer " + this.access_token,
             },
@@ -112,7 +112,25 @@ export class Client {
             .replace(/\//g, '_')
             .replace(/=/g, '');
         sessionStorage.setItem("verifier", verifier);
-        window.location.assign(`${this.issuer}/${this.application_id}/_auth/auth?client_id=${this.client_id}&scope=${this.scopes}&redirect_uri=${this.redirect_uri}&response_type=code&code_challenge=${challenge}`)
+
+        const stateData = await this.sha256(this.generateCodeVerifier(96));
+        const state = base64.fromByteArray(new Uint8Array(stateData))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        sessionStorage.setItem("state", state)
+
+        const nonceData = await this.sha256(this.generateCodeVerifier(96));
+        const nonce = base64.fromByteArray(new Uint8Array(nonceData))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        sessionStorage.setItem("nonce", nonce)
+
+        const redirectURI = document.location.toString();
+        sessionStorage.setItem("redirectURI", redirectURI)
+
+        window.location.assign(`${this.issuer}/${this.application_id}/_auth/auth?client_id=${this.client_id}&scope=${this.scopes}&redirect_uri=${redirectURI}&nonce=${nonce}&state=${state}&response_type=code&code_challenge=${challenge}`)
     }
     public isLoggedIn = () => {
         return this.access_token !== "";
@@ -146,14 +164,24 @@ export class Client {
         }
         return String.fromCharCode.apply(null, chars);
     }
-    public exchangeCodeForToken = async (code: string) => {
+    public exchangeCodeForToken = async () => {
+        let params = new URLSearchParams(document.location.search.substring(1));
+        const code = params.get("code");
+        const state = params.get("state");
+        if (code === null || state === null) {
+            return
+        }
+        const sessionState = sessionStorage.getItem("state");
+        if (sessionState !== state) {
+            return
+        }
         let headers = new Headers();
         headers.append("content-type", "application/x-www-form-urlencoded");
         let urlEncoded = new URLSearchParams();
         urlEncoded.append("grant_type", "authorization_code");
         urlEncoded.append("client_id", this.client_id);
         urlEncoded.append("code", code);
-        urlEncoded.append("redirect_uri", this.redirect_uri);
+        urlEncoded.append("redirect_uri", sessionStorage.getItem("redirectURI") || "");
         urlEncoded.append("code_verifier", sessionStorage.getItem("verifier") || "");
         urlEncoded.append("code_challenge_method", "S256");
         const response = await fetch(`${this.issuer}/${this.application_id}/_auth/token`, {
@@ -162,18 +190,34 @@ export class Client {
             body: urlEncoded,
             redirect: "follow"
         });
-        const data = await response.json()
-        console.log("login data", data);
+        const data = await response.json();
+        if (!this.nonceValid(data.id_token)){
+            return
+        }
         this.access_token = data.access_token;
         this.refresh_token = data.refresh_token;
+        window.history.replaceState({}, document.title, document.location.pathname);
+        this.scheduleRefresh(data.expires_in)
     }
-    private refresh = async (refreshToken: string) => {
+    private scheduleRefresh = (expires_in: number) => {
+        if (this.refresh_timeout_id !== undefined) {
+            clearTimeout(this.refresh_timeout_id)
+        }
+        const refreshingIn = expires_in * 1000 * 0.75;
+        this.refresh_timeout_id = setTimeout(async () => {
+            await this.refresh()
+        }, refreshingIn)
+    }
+    private refresh = async () => {
+        if (this.refresh_token === ""){
+            return
+        }
         let headers = new Headers();
         headers.append("content-type", "application/x-www-form-urlencoded");
         let urlEncoded = new URLSearchParams();
         urlEncoded.append("grant_type", "refresh_token");
         urlEncoded.append("client_id", this.client_id);
-        urlEncoded.append("refresh_token", refreshToken);
+        urlEncoded.append("refresh_token", this.refresh_token);
         const response = await fetch(`${this.issuer}/${this.application_id}/_auth/token`, {
             method: 'POST',
             headers: headers,
@@ -181,13 +225,21 @@ export class Client {
             redirect: "follow"
         });
         const data = await response.json();
+        if (!this.nonceValid(data.id_token)){
+            return
+        }
         this.refresh_token = data.refresh_token;
         this.access_token = data.access_token;
+        this.scheduleRefresh(data.expires_in);
     }
     private sha256 = async (message: string) => {
         const encoder = new TextEncoder();
         const data = encoder.encode(message);
         return await crypto.subtle.digest('SHA-256', data);
+    }
+    private nonceValid = (id_token: string):boolean => {
+        const data = JSON.parse(atob(id_token.split('.')[1]));
+        return data.nonce === sessionStorage.getItem("nonce");
     }
     {{- end }}
 }
