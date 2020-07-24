@@ -78,7 +78,7 @@ export class Client {
     private readonly scopes = "openid+profile+email+offline_access";
     private access_token: string = "";
     private refresh_token: string = "";
-    private refresh_timeout_id: number;
+    private refresh_timeout_id: NodeJS.Timeout | undefined;
 {{- end }}
     private doFetch = async (config: FetchConfig) => {
         let params = config.variables === undefined ? "" :
@@ -177,17 +177,21 @@ export class Client {
         }
         let headers = new Headers();
         headers.append("content-type", "application/x-www-form-urlencoded");
-        let urlEncoded = new URLSearchParams();
-        urlEncoded.append("grant_type", "authorization_code");
-        urlEncoded.append("client_id", this.client_id);
-        urlEncoded.append("code", code);
-        urlEncoded.append("redirect_uri", sessionStorage.getItem("redirectURI") || "");
-        urlEncoded.append("code_verifier", sessionStorage.getItem("verifier") || "");
-        urlEncoded.append("code_challenge_method", "S256");
+        let fetchTokenParams = new URLSearchParams();
+        fetchTokenParams.append("grant_type", "authorization_code");
+        fetchTokenParams.append("client_id", this.client_id);
+        fetchTokenParams.append("code", code);
+        fetchTokenParams.append("redirect_uri", sessionStorage.getItem("redirectURI") || "");
+        fetchTokenParams.append("code_verifier", sessionStorage.getItem("verifier") || "");
+        fetchTokenParams.append("code_challenge_method", "S256");
+        await this.fetchToken(fetchTokenParams,headers)
+        window.history.replaceState({}, document.title, document.location.pathname);
+    }
+    private fetchToken = async (params: URLSearchParams, headers: Headers) => {
         const response = await fetch(`${this.issuer}/${this.application_id}/_auth/token`, {
             method: 'POST',
             headers: headers,
-            body: urlEncoded,
+            body: params,
             redirect: "follow"
         });
         const data = await response.json();
@@ -196,8 +200,7 @@ export class Client {
         }
         this.access_token = data.access_token;
         this.refresh_token = data.refresh_token;
-        window.history.replaceState({}, document.title, document.location.pathname);
-        this.scheduleRefresh(data.expires_in)
+        this.scheduleRefresh(data.expires_in);
     }
     private scheduleRefresh = (expires_in: number) => {
         if (this.refresh_timeout_id !== undefined) {
@@ -214,23 +217,11 @@ export class Client {
         }
         let headers = new Headers();
         headers.append("content-type", "application/x-www-form-urlencoded");
-        let urlEncoded = new URLSearchParams();
-        urlEncoded.append("grant_type", "refresh_token");
-        urlEncoded.append("client_id", this.client_id);
-        urlEncoded.append("refresh_token", this.refresh_token);
-        const response = await fetch(`${this.issuer}/${this.application_id}/_auth/token`, {
-            method: 'POST',
-            headers: headers,
-            body: urlEncoded,
-            redirect: "follow"
-        });
-        const data = await response.json();
-        if (!this.nonceValid(data.id_token)){
-            return
-        }
-        this.refresh_token = data.refresh_token;
-        this.access_token = data.access_token;
-        this.scheduleRefresh(data.expires_in);
+        let fetchTokenParams = new URLSearchParams();
+        fetchTokenParams.append("grant_type", "refresh_token");
+        fetchTokenParams.append("client_id", this.client_id);
+        fetchTokenParams.append("refresh_token", this.refresh_token);
+        await this.fetchToken(fetchTokenParams,headers)
     }
     private sha256 = async (message: string) => {
         const encoder = new TextEncoder();
