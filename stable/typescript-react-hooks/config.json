@@ -1,0 +1,16 @@
+{
+    "scalars": {
+      "id":      "string",
+      "string":  "string",
+      "boolean": "boolean",
+      "int":     "number",
+      "float":   "number",
+      "date":    "any"
+    },
+    "scalarFallback": "any",
+    "nullableType":   "Maybe<%s>",
+    "listType":       "Array<%s>",
+    "dependencies": [
+      "typescript"
+    ]
+}

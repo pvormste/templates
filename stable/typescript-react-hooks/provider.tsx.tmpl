@@ -1,0 +1,35 @@
+import {Client} from "./client";
+import React, {createContext, Dispatch, FunctionComponent, SetStateAction, useEffect, useMemo, useState} from "react";
+
+export interface Config {
+    client: Client
+    isAuthenticated: boolean
+    setIsAuthenticated: Dispatch<SetStateAction<boolean>>
+}
+
+export const WunderGraphContext = createContext<Config | undefined>(undefined);
+
+export interface Props {
+    gatewayEndpoint: string
+}
+
+export const WunderGraphProvider: FunctionComponent<Props> = ({gatewayEndpoint, children}) => {
+    const [isAuthenticated,setIsAuthenticated] = useState<boolean>(false);
+    const client = useMemo<Client>(() => new Client(gatewayEndpoint),[gatewayEndpoint]);
+    const config: Config = useMemo(():Config => {
+        return {
+            client: client,
+            isAuthenticated,
+            setIsAuthenticated
+        }
+    },[isAuthenticated,setIsAuthenticated,client])
+    useEffect(() => {
+        ((async () => {
+            await client.exchangeCodeForToken();
+            setIsAuthenticated(client.isLoggedIn());
+        })())
+    },[client])
+    return <WunderGraphContext.Provider value={config}>
+        {children}
+    </WunderGraphContext.Provider>
+}

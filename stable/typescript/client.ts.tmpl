@@ -58,7 +58,22 @@ interface FetchConfig {
     operation_name: string
     requires_authentication: boolean
     variables?: any
+    abort_signal?: AbortSignal
 }
+
+export interface RequestConfig {
+    abort_signal?: AbortSignal,
+}
+
+{{ range $i, $operationData := .OperationsData -}}
+{{- if $operationData.Operation.HasVariables -}}
+export interface {{ $operationData.Operation.Name }}Variables {
+{{- range $j, $variable := $operationData.Operation.Variables }}
+    {{ $variable.Name }}{{ if not $variable.IsRequired }}?{{ end }}: {{ typeNameFor $variable.TypeName }}{{ end }}
+}
+{{ if not ( last $i $.OperationsData ) }}
+{{ end }}{{ end -}}
+{{ end -}}
 {{ if .Auth.Enabled }}
 declare global {
     interface Window {
@@ -81,24 +96,23 @@ export class Client {
     private refresh_timeout_id: NodeJS.Timeout | undefined;
 {{- end }}
     private doFetch = async (config: FetchConfig) => {
-        let params = config.variables === undefined ? "" :
+        const params = config.variables === undefined ? "" :
             "?variables=" + encodeURIComponent(JSON.stringify(config.variables))
         const response = await fetch(this.issuer + "/" + this.application_id + "/" + config.operation_name + params, {
             headers: !config.requires_authentication ? undefined : {
                 Authorization: "Bearer " + this.access_token,
             },
+            signal: config.abort_signal,
         });
         return response.json();
     }{{ range $i, $operationData := .OperationsData }}
-    public {{ $operationData.Operation.OperationPrefix }}{{ $operationData.Operation.Name }} = async ({{ template "variables" $operationData.Operation.Variables }}): Promise<{{ $operationData.Operation.Name }}Response> => {
+    public {{ $operationData.Operation.OperationPrefix }}{{ $operationData.Operation.Name }} = async ({{ if $operationData.Operation.HasVariables }}variables: {{ $operationData.Operation.Name }}Variables, {{ end }}requestConfig?: RequestConfig): Promise<{{ $operationData.Operation.Name }}Response> => {
         const config: FetchConfig = {
             operation_name: "{{ $operationData.Operation.Name }}",
             requires_authentication: {{ $operationData.Operation.Auth.Enabled }},
+            abort_signal: requestConfig?.abort_signal,
 {{- if $operationData.Operation.HasVariables }}
-            variables: {
-{{- range $j, $variable := $operationData.Operation.Variables }}
-                {{ $variable.Name }},{{ end }}
-            },{{ end }}
+            variables{{ end }}
         };
         return this.doFetch(config);
     }{{ end }}

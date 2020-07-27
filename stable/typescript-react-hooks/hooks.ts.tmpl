@@ -1,0 +1,90 @@
+import {WunderGraphContext} from "./provider";
+import {useCallback, useContext, useEffect, useMemo, useState} from "react";
+import {
+{{- range $i, $operation := .OperationsData }}
+    {{ $operation.Operation.Name }}Response,{{ if $operation.Operation.HasVariables }}
+    {{ $operation.Operation.Name }}Variables,{{ end -}}
+{{ end }}
+    RequestConfig
+} from "./client";
+
+export const useWunderGraph = () => {
+    const ctx = useContext(WunderGraphContext)
+    if (ctx === undefined) {
+        throw new Error("It seems you forgot to put WunderProvider at the root of your application. Otherwise there might be a but so please contact us.")
+    }
+    const logout = useCallback(() => {
+        ctx.client.logout();
+        ctx.setIsAuthenticated(ctx.client.isLoggedIn());
+    }, [ctx.client, ctx.setIsAuthenticated]);
+    return {
+        client: ctx.client,
+        isAuthenticated: ctx.isAuthenticated,
+        startLogin: ctx.client.login,
+        logout,
+    }
+}
+
+const useQuery = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), initialVariables?: any) => {
+    const [response, setResponse] = useState<Response>();
+    const [loading, setLoading] = useState<boolean>(false);
+    const [lastRefetch, setLastRefetch] = useState<number>(Date.now())
+    const [variables, setVariables] = useState<any>(initialVariables);
+    const {isAuthenticated} = useWunderGraph();
+    const abortController = useMemo<AbortController>(() => new AbortController(), [lastRefetch, isAuthenticated,variables])
+    const abort = useCallback(() => {
+        abortController.abort();
+    }, [abortController])
+    useEffect(() => {
+        if (!isAuthenticated) {
+            setResponse(undefined);
+            return
+        }
+        (async () => {
+            setLoading(true);
+            const response = variables === undefined ? await fetch({
+                abort_signal: abortController.signal,
+            }) : await fetch(variables, {
+                abort_signal: abortController.signal,
+            });
+            if (abortController.signal.aborted) {
+                return
+            }
+            setLoading(false);
+            setResponse(response)
+        })();
+        return () => {
+            abort();
+        }
+    }, [isAuthenticated, lastRefetch, abortController, variables])
+    const refetch = useCallback(() => {
+        setLastRefetch(Date.now());
+    }, [setLastRefetch])
+    return {
+        response,
+        refetch,
+        loading,
+        abort,
+        setVariables
+    }
+}
+{{ range $i, $operation := .OperationsData }}
+export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }} = ({{ if $operation.Operation.HasVariables}}variables: {{ $operation.Operation.Name }}Variables{{ end }}) => {
+    const {client} = useWunderGraph();
+    const {response, refetch, loading, abort{{ if $operation.Operation.HasVariables }}, setVariables{{ end }}} = useQuery<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}{{ if $operation.Operation.HasVariables }}, variables{{ end }});
+    {{- if $operation.Operation.HasVariables }}
+    const refetchVariables: (variables: {{ $operation.Operation.Name }}Variables) => void = useCallback((variables: {{ $operation.Operation.Name }}Variables) => {
+        setVariables(variables);
+    }, [setVariables]);{{ end }}
+    return {
+        data: response?.data,
+        errors: response?.errors,
+        refetch,
+        {{ if $operation.Operation.HasVariables -}}
+        refetchVariables,
+        {{ end -}}
+        loading,
+        abort,
+    }
+}
+{{ end }}
