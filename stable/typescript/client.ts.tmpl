@@ -1,0 +1,252 @@
+{{ if .Auth.Enabled -}}
+import base64 from 'base64-js';
+
+{{ end -}}
+export type Maybe<T> = T | null;
+
+export type Scalars = {
+{{ range $i,$e := .Models.Scalars }}    {{ $e.Name }}: {{ scalarNameFor $e.Name }}
+{{ end }}};
+{{ range $i, $obj := .Models.Objects }}
+export type {{ $obj.Name }} ={{ range $k, $iFace := $obj.ImplementsInterfaces}} {{ $iFace }} &{{end}} {
+    __typename?: '{{ $obj.Name }}';
+{{ range $j, $field := $obj.Fields }}    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $obj.Fields ) }}
+{{ end }}{{end}}
+};
+{{ end }}{{ range $i, $obj := .Models.Interfaces }}
+export type {{ $obj.Name }} ={{ range $k, $iFace := $obj.ImplementsInterfaces}} {{ $iFace }} &{{end}} {
+{{ range $j, $field := $obj.Fields }}    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $obj.Fields ) }}
+{{ end }}{{end}}
+};
+{{end}}{{ range $i, $enum := .Models.Enums }}
+export enum {{ $enum.Name }} {
+{{ range $j, $value := $enum.Values}}    {{ $value }} = '{{ $value }}',
+{{ end }}}
+{{ end }}
+{{- range $i, $union := .Models.Unions }}
+export type {{ $union.Name }} ={{ range $j, $member := $union.UnionMemberTypes }} {{ if $j }}| {{ end }}{{ $member }}{{ end }}
+{{ end }}
+export type GraphQLErrorLocation = {
+    line: number;
+    column: number;
+};
+
+export type GraphQLError = {
+    message: string;
+    locations: GraphQLErrorLocation[];
+    path: (string | number)[]
+};
+
+export type GraphQLResponse = {
+    errors?: GraphQLError[];
+};
+{{ range $i, $operationData := .OperationsData }}
+export type {{ $operationData.Operation.Name }}Response = GraphQLResponse & {
+    data: {
+{{ range $j, $field := $operationData.Operation.ResponseFields }}        {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end }};{{ if not ( last $j $operationData.Operation.ResponseFields ) }}
+{{ end }}{{end}}
+    };
+};
+{{ end -}}
+{{ range $i, $input := .Models.Inputs }}
+export type {{ $input.Name }} = {
+{{- range $j, $field := $input.Fields }}
+    {{ $field.Name }}: {{ if $field.IsScalar }}Scalars['{{ $field.TypeName }}']{{ else }}{{ toType $field }}{{ end -}};{{ end }}
+};
+{{ end }}
+interface FetchConfig {
+    operation_name: string
+    requires_authentication: boolean
+    variables?: any
+    abort_signal?: AbortSignal
+}
+
+export interface RequestConfig {
+    abort_signal?: AbortSignal,
+}
+
+{{ range $i, $operationData := .OperationsData -}}
+{{- if $operationData.Operation.HasVariables -}}
+export interface {{ $operationData.Operation.Name }}Variables {
+{{- range $j, $variable := $operationData.Operation.Variables }}
+    {{ $variable.Name }}{{ if not $variable.IsRequired }}?{{ end }}: {{ typeNameFor $variable.TypeName }}{{ end }}
+}
+{{ if not ( last $i $.OperationsData ) }}
+{{ end }}{{ end -}}
+{{ end -}}
+{{ if .Auth.Enabled }}
+declare global {
+    interface Window {
+        msCrypto: Crypto;
+    }
+}
+{{- end }}
+
+export class Client {
+    constructor(endpoint: string) {
+        this.issuer = endpoint;
+    }
+    private readonly issuer: string
+{{- if .Client.IsDefined }}
+    private readonly client_id = "{{ .Client.ID }}";
+    private readonly application_id = "{{ .ApplicationID }}";
+    private readonly scopes = "openid+profile+email+offline_access";
+    private access_token: string = "";
+    private refresh_token: string = "";
+    private refresh_timeout_id: NodeJS.Timeout | undefined;
+{{- end }}
+    private doFetch = async (config: FetchConfig) => {
+        const params = config.variables === undefined ? "" :
+            "?variables=" + encodeURIComponent(JSON.stringify(config.variables))
+        const response = await fetch(this.issuer + "/" + this.application_id + "/" + config.operation_name + params, {
+            headers: !config.requires_authentication ? undefined : {
+                Authorization: "Bearer " + this.access_token,
+            },
+            signal: config.abort_signal,
+        });
+        return response.json();
+    }{{ range $i, $operationData := .OperationsData }}
+    public {{ $operationData.Operation.OperationPrefix }}{{ $operationData.Operation.Name }} = async ({{ if $operationData.Operation.HasVariables }}variables: {{ $operationData.Operation.Name }}Variables, {{ end }}requestConfig?: RequestConfig): Promise<{{ $operationData.Operation.Name }}Response> => {
+        const config: FetchConfig = {
+            operation_name: "{{ $operationData.Operation.Name }}",
+            requires_authentication: {{ $operationData.Operation.Auth.Enabled }},
+            abort_signal: requestConfig?.abort_signal,
+{{- if $operationData.Operation.HasVariables }}
+            variables{{ end }}
+        };
+        return this.doFetch(config);
+    }{{ end }}
+{{- if .Client.IsDefined }}
+    public login = async () => {
+        const verifier = this.generateCodeVerifier(96);
+        const hash = await this.sha256(verifier);
+        let hashBytes = new Uint8Array(hash);
+        const challenge = base64.fromByteArray(hashBytes)
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        sessionStorage.setItem("verifier", verifier);
+
+        const stateData = await this.sha256(this.generateCodeVerifier(96));
+        const state = base64.fromByteArray(new Uint8Array(stateData))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        sessionStorage.setItem("state", state)
+
+        const nonceData = await this.sha256(this.generateCodeVerifier(96));
+        const nonce = base64.fromByteArray(new Uint8Array(nonceData))
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        sessionStorage.setItem("nonce", nonce)
+
+        const redirectURI = document.location.toString();
+        sessionStorage.setItem("redirectURI", redirectURI)
+
+        window.location.assign(`${this.issuer}/${this.application_id}/_auth/auth?client_id=${this.client_id}&scope=${this.scopes}&redirect_uri=${redirectURI}&nonce=${nonce}&state=${state}&response_type=code&code_challenge=${challenge}`)
+    }
+    public isLoggedIn = () => {
+        return this.access_token !== "";
+    }
+    public logout = () => {
+        this.access_token = "";
+        this.refresh_token = "";
+    }
+    private generateRandomData = (len: number) => {
+        let array = null;
+        let crypto = window.crypto || window.msCrypto;
+        if (crypto && crypto.getRandomValues && window.Uint8Array) {
+            array = new Uint8Array(len);
+            crypto.getRandomValues(array);
+            return array;
+        }
+        array = new Array(len);
+        for (let j = 0; j < array.length; j++) {
+            array[j] = Math.floor(256 * Math.random());
+        }
+        return array;
+    }
+    private generateCodeVerifier = (len: number) => {
+        return this.generateRandomString(len, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
+    }
+    private generateRandomString = (len: number, alphabet: string) => {
+        let randomData = this.generateRandomData(len);
+        let chars = new Array(len);
+        for (let i = 0; i < len; i++) {
+            chars[i] = alphabet.charCodeAt(randomData[i] % alphabet.length);
+        }
+        return String.fromCharCode.apply(null, chars);
+    }
+    public exchangeCodeForToken = async () => {
+        let params = new URLSearchParams(document.location.search.substring(1));
+        const code = params.get("code");
+        const state = params.get("state");
+        if (code === null || state === null) {
+            return
+        }
+        const sessionState = sessionStorage.getItem("state");
+        if (sessionState !== state) {
+            return
+        }
+        let headers = new Headers();
+        headers.append("content-type", "application/x-www-form-urlencoded");
+        let fetchTokenParams = new URLSearchParams();
+        fetchTokenParams.append("grant_type", "authorization_code");
+        fetchTokenParams.append("client_id", this.client_id);
+        fetchTokenParams.append("code", code);
+        fetchTokenParams.append("redirect_uri", sessionStorage.getItem("redirectURI") || "");
+        fetchTokenParams.append("code_verifier", sessionStorage.getItem("verifier") || "");
+        fetchTokenParams.append("code_challenge_method", "S256");
+        await this.fetchToken(fetchTokenParams,headers)
+        window.history.replaceState({}, document.title, document.location.pathname);
+    }
+    private fetchToken = async (params: URLSearchParams, headers: Headers) => {
+        const response = await fetch(`${this.issuer}/${this.application_id}/_auth/token`, {
+            method: 'POST',
+            headers: headers,
+            body: params,
+            redirect: "follow"
+        });
+        const data = await response.json();
+        if (!this.nonceValid(data.id_token)){
+            return
+        }
+        this.access_token = data.access_token;
+        this.refresh_token = data.refresh_token;
+        this.scheduleRefresh(data.expires_in);
+    }
+    private scheduleRefresh = (expires_in: number) => {
+        if (this.refresh_timeout_id !== undefined) {
+            clearTimeout(this.refresh_timeout_id)
+        }
+        const refreshingIn = expires_in * 1000 * 0.75;
+        this.refresh_timeout_id = setTimeout(async () => {
+            await this.refresh()
+        }, refreshingIn)
+    }
+    private refresh = async () => {
+        if (this.refresh_token === ""){
+            return
+        }
+        let headers = new Headers();
+        headers.append("content-type", "application/x-www-form-urlencoded");
+        let fetchTokenParams = new URLSearchParams();
+        fetchTokenParams.append("grant_type", "refresh_token");
+        fetchTokenParams.append("client_id", this.client_id);
+        fetchTokenParams.append("refresh_token", this.refresh_token);
+        await this.fetchToken(fetchTokenParams,headers)
+    }
+    private sha256 = async (message: string) => {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(message);
+        return await crypto.subtle.digest('SHA-256', data);
+    }
+    private nonceValid = (id_token: string):boolean => {
+        const data = JSON.parse(atob(id_token.split('.')[1]));
+        return data.nonce === sessionStorage.getItem("nonce");
+    }
+    {{- end }}
+}
+
+{{- define "variables" }}{{ $variables := . }}{{ range $i,$variable := $variables }}{{ $variable.Name }}{{ if not $variable.IsRequired }}?{{ end }}: {{ typeNameFor $variable.TypeName }}{{ if not ( last $i $variables ) }},{{ end }}{{ end }}{{ end -}}

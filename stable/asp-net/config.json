@@ -1,0 +1,13 @@
+{
+    "scalars": {
+      "id":      "string",
+      "string":  "string",
+      "boolean": "bool",
+      "int":     "int",
+      "float":   "float",
+      "date":    "DateTime"
+    },
+    "scalarFallback": "object",
+    "nullableType":   "%s?",
+    "listType":       "List<%s>"
+  }

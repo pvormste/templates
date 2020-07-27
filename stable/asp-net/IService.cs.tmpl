@@ -1,0 +1,11 @@
+using System.Threading.Tasks;
+
+namespace Wundergraph.Generated.{{ title .App }}
+{
+    public interface I{{ title .App }}Service
+    {
+        {{- range $i, $operationData := .OperationsData }}
+        Task<Response<{{ title $operationData.Operation.Name }}Response>> Get{{ title $operationData.Operation.Name }}Async();
+        {{- end }}
+    }
+}

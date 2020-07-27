@@ -1,0 +1,41 @@
+# Documentation for App '{{.App}}'
+ - BasePath: `{{.BasePath}}`
+
+## Models
+### Objects
+{{range $i, $obj := .Models.Objects}}
+#### {{.Name}}
+| field name | Type | GraphQLType Name |
+| ---- | ---- | ---- |
+{{range .Fields}}| {{.Name}} | {{toType .}} | {{.TypeName}} |
+{{end}}
+{{end}}
+
+### Enums
+{{range $i, $obj := .Models.Enums}}
+#### {{.Name}}
+{{range $val := .Values}} - {{$val}}
+{{end}}
+{{end}}
+
+### Inputs
+{{range $i, $obj := .Models.Inputs}}
+#### {{.Name}}
+| field name | Type | GraphQLType Name |
+| ---- | ---- | ---- |
+{{range .Fields}}| {{.Name}} | {{toType .}} | {{.TypeName}} |
+{{end}}
+{{end}}
+
+### Scalars
+{{range .Models.Scalars}} - {{.Name}}
+{{end}}
+
+## Queries
+{{range .OperationsData}}
+### {{.Operation.Name}}
+Endpoint: `{{.Endpoint}}`
+```graphql
+{{.Operation.Content}}
+```
+{{end}}
