@@ -25,7 +25,7 @@ export const useWunderGraph = () => {
     }
 }
 
-const useQuery = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), initialVariables?: any) => {
+const useQuery = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), requiresAuthentication: boolean, initialVariables?: any) => {
     const [response, setResponse] = useState<Response>();
     const [loading, setLoading] = useState<boolean>(false);
     const [lastRefetch, setLastRefetch] = useState<number>(Date.now())
@@ -36,7 +36,7 @@ const useQuery = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<R
         abortController.abort();
     }, [abortController])
     useEffect(() => {
-        if (!isAuthenticated) {
+        if (requiresAuthentication && !isAuthenticated) {
             setResponse(undefined);
             return
         }
