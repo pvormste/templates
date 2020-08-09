@@ -16,7 +16,7 @@ export const useWunderGraph = () => {
     const logout = useCallback(() => {
         ctx.client.logout();
         ctx.setIsAuthenticated(ctx.client.isLoggedIn());
-    }, [ctx.client, ctx.setIsAuthenticated]);
+    }, [ctx]);
     return {
         client: ctx.client,
         isAuthenticated: ctx.isAuthenticated,
@@ -25,53 +25,101 @@ export const useWunderGraph = () => {
     }
 }
 
-const useQuery = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), requiresAuthentication: boolean, initialVariables?: any) => {
+interface OperationParams {
+    requiresAuthentication: boolean
+    initialVariables?: any
+    operationType: OperationType,
+    lazy: boolean,
+}
+
+enum OperationType {
+    "Query" = "Query",
+    "Mutation" = "Mutation",
+    "Subscription" = "Subscription"
+}
+
+export enum OperationState {
+    "Init" = "Init",
+    "Loading" = "Loading",
+    "Success" = "Success",
+    "Error" = "Error",
+    "LazyWaitingForRefetch" = "LazyWaitingForRefetch",
+    "WaitingForAuthentication" = "WaitingForAuthentication",
+}
+
+export interface QueryParams {
+    lazy?: boolean
+}
+
+const useOperation = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), params: OperationParams) => {
     const [response, setResponse] = useState<Response>();
-    const [loading, setLoading] = useState<boolean>(false);
-    const [lastRefetch, setLastRefetch] = useState<number>(Date.now())
-    const [variables, setVariables] = useState<any>(initialVariables);
+    const [operationState, setOperationState] = useState<OperationState>(OperationState.Init);
+    const [lastRefetch, setLastRefetch] = useState<number | undefined>(undefined)
+    const [variables, setVariables] = useState<any>(params.initialVariables);
     const {isAuthenticated} = useWunderGraph();
-    const abortController = useMemo<AbortController>(() => new AbortController(), [lastRefetch, isAuthenticated,variables])
+    const abortController = useMemo<AbortController>(() => new AbortController(), [lastRefetch, isAuthenticated, variables]);
     const abort = useCallback(() => {
         abortController.abort();
-    }, [abortController])
+    }, [abortController]);
     useEffect(() => {
-        if (requiresAuthentication && !isAuthenticated) {
+        if (params.requiresAuthentication && !isAuthenticated) {
             setResponse(undefined);
-            return
+            setOperationState(OperationState.WaitingForAuthentication);
+            return;
+        }
+        if (params.lazy && lastRefetch === undefined){
+            setOperationState(OperationState.LazyWaitingForRefetch);
+            return;
         }
         (async () => {
-            setLoading(true);
-            const response = variables === undefined ? await fetch({
-                abort_signal: abortController.signal,
-            }) : await fetch(variables, {
-                abort_signal: abortController.signal,
-            });
-            if (abortController.signal.aborted) {
-                return
+            setOperationState(OperationState.Loading);
+            try {
+                const response = variables === undefined ? await fetch({
+                    abort_signal: abortController.signal,
+                }) : await fetch(variables, {
+                    abort_signal: abortController.signal,
+                });
+                if (abortController.signal.aborted) {
+                    return
+                }
+                setOperationState(OperationState.Success);
+                setResponse(response);
+            } catch (e) {
+                setOperationState(OperationState.Error);
+                setResponse(undefined);
             }
-            setLoading(false);
-            setResponse(response)
         })();
         return () => {
             abort();
         }
-    }, [isAuthenticated, lastRefetch, abortController, variables])
+    }, [isAuthenticated, lastRefetch, abortController, variables,params.lazy])
     const refetch = useCallback(() => {
         setLastRefetch(Date.now());
     }, [setLastRefetch])
     return {
         response,
         refetch,
-        loading,
+        operationState,
         abort,
         setVariables
     }
 }
 {{ range $i, $operation := .OperationsData }}
-export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }} = ({{ if $operation.Operation.HasVariables}}variables: {{ $operation.Operation.Name }}Variables{{ end }}) => {
+export interface {{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}Params extends QueryParams { {{- if $operation.Operation.HasVariables }}
+    variables: {{ $operation.Operation.Name }}Variables,
+{{ end -}}}
+
+export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }} = (params{{ if not $operation.Operation.HasVariables }}?{{ end }}: {{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}Params) => {
     const {client} = useWunderGraph();
-    const {response, refetch, loading, abort{{ if $operation.Operation.HasVariables }}, setVariables{{ end }}} = useQuery<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}{{ if $operation.Operation.HasVariables }}, variables{{ end }});
+    const operationParams: OperationParams = {
+        operationType: OperationType.Query,
+        {{ if $operation.Operation.HasVariables -}}
+            initialVariables: params.variables,
+        {{ end -}}
+        requiresAuthentication: true,
+        lazy: params{{ if not $operation.Operation.HasVariables }}?{{ end }}.lazy === true,
+    };
+    const {response, refetch, operationState, abort{{ if $operation.Operation.HasVariables }}, setVariables{{ end }}} = useOperation<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}, operationParams);
     {{- if $operation.Operation.HasVariables }}
     const refetchVariables: (variables: {{ $operation.Operation.Name }}Variables) => void = useCallback((variables: {{ $operation.Operation.Name }}Variables) => {
         setVariables(variables);
@@ -83,7 +131,7 @@ export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operatio
         {{ if $operation.Operation.HasVariables -}}
         refetchVariables,
         {{ end -}}
-        loading,
+        operationState,
         abort,
     }
 }

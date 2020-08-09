@@ -11,24 +11,38 @@ export const WunderGraphContext = createContext<Config | undefined>(undefined);
 
 export interface Props {
     gatewayEndpoint: string
+    autoLogin?: boolean
 }
 
-export const WunderGraphProvider: FunctionComponent<Props> = ({gatewayEndpoint, children}) => {
-    const [isAuthenticated,setIsAuthenticated] = useState<boolean>(false);
-    const client = useMemo<Client>(() => new Client(gatewayEndpoint),[gatewayEndpoint]);
-    const config: Config = useMemo(():Config => {
+export const WunderGraphProvider: FunctionComponent<Props> = ({gatewayEndpoint, autoLogin, children}) => {
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+    const client = useMemo<Client>(() => new Client(gatewayEndpoint), [gatewayEndpoint]);
+    const config: Config = useMemo((): Config => {
         return {
             client: client,
             isAuthenticated,
             setIsAuthenticated
         }
-    },[isAuthenticated,setIsAuthenticated,client])
+    }, [isAuthenticated, setIsAuthenticated, client])
     useEffect(() => {
         ((async () => {
             await client.exchangeCodeForToken();
             setIsAuthenticated(client.isLoggedIn());
         })())
-    },[client])
+    }, [client])
+    useEffect(() => {
+        if (autoLogin !== true) {
+            return;
+        }
+        let params = new URLSearchParams(document.location.search.substring(1));
+        const code = params.get("code");
+        if (code !== null) {
+            return;
+        }
+        (async () => {
+            await client.login()
+        })()
+    }, [client, autoLogin])
     return <WunderGraphContext.Provider value={config}>
         {children}
     </WunderGraphContext.Provider>
