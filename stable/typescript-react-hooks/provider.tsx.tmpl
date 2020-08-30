@@ -10,13 +10,13 @@ export interface Config {
 export const WunderGraphContext = createContext<Config | undefined>(undefined);
 
 export interface Props {
-    gatewayEndpoint: string
+    wunderNodeEndpoint?: string
     autoLogin?: boolean
 }
 
-export const WunderGraphProvider: FunctionComponent<Props> = ({gatewayEndpoint, autoLogin, children}) => {
+export const WunderGraphProvider: FunctionComponent<Props> = ({ wunderNodeEndpoint, autoLogin, children}) => {
     const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-    const client = useMemo<Client>(() => new Client(gatewayEndpoint), [gatewayEndpoint]);
+    const client = useMemo<Client>(() => new Client(wunderNodeEndpoint || "http://localhost:8040"), [wunderNodeEndpoint]);
     const config: Config = useMemo((): Config => {
         return {
             client: client,
