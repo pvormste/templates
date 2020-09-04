@@ -59,6 +59,12 @@ interface FetchConfig {
     requires_authentication: boolean
     variables?: any
     abort_signal?: AbortSignal
+    method: FetchMethod
+}
+
+enum FetchMethod {
+    GET = 'GET',
+    POST = 'POST',
 }
 
 export interface RequestConfig {
@@ -102,6 +108,7 @@ export class Client {
             headers: !config.requires_authentication ? undefined : {
                 Authorization: "Bearer " + this.access_token,
             },
+            method: config.method,
             signal: config.abort_signal,
         });
         return response.json();
@@ -109,6 +116,7 @@ export class Client {
     public {{ $operationData.Operation.OperationPrefix }}{{ $operationData.Operation.Name }} = async ({{ if $operationData.Operation.HasVariables }}variables: {{ $operationData.Operation.Name }}Variables, {{ end }}requestConfig?: RequestConfig): Promise<{{ $operationData.Operation.Name }}Response> => {
         const config: FetchConfig = {
             operation_name: "{{ $operationData.Operation.Name }}",
+            method: {{ if $operationData.Operation.IsMutation }}FetchMethod.POST{{ else }}FetchMethod.GET{{ end }},
             requires_authentication: {{ $operationData.Operation.Auth.Enabled }},
             abort_signal: requestConfig?.abort_signal,
 {{- if $operationData.Operation.HasVariables }}

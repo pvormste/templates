@@ -51,6 +51,8 @@ export interface QueryParams {
     lazy?: boolean
 }
 
+export interface MutationParams {}
+
 const useOperation = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), params: OperationParams) => {
     const [response, setResponse] = useState<Response>();
     const [operationState, setOperationState] = useState<OperationState>(OperationState.Init);
@@ -105,7 +107,7 @@ const useOperation = <Response>(fetch: ((requestConfig?: RequestConfig) => Promi
     }
 }
 {{ range $i, $operation := .OperationsData }}
-export interface {{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}Params extends QueryParams { {{- if $operation.Operation.HasVariables }}
+export interface {{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}Params extends {{ camelcase $operation.Operation.OperationPrefix }}Params { {{- if $operation.Operation.HasVariables }}
     variables: {{ $operation.Operation.Name }}Variables,
 {{ end -}}}
 
@@ -117,7 +119,10 @@ export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operatio
             initialVariables: params.variables,
         {{ end -}}
         requiresAuthentication: true,
-        lazy: params{{ if not $operation.Operation.HasVariables }}?{{ end }}.lazy === true,
+        {{- if $operation.Operation.IsMutation }}
+        lazy: true,
+        {{- else }}
+        lazy: params{{ if not $operation.Operation.HasVariables }}?{{ end }}.lazy === true,{{ end }}
     };
     const {response, refetch, operationState, abort{{ if $operation.Operation.HasVariables }}, setVariables{{ end }}} = useOperation<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}, operationParams);
     {{- if $operation.Operation.HasVariables }}
@@ -127,9 +132,15 @@ export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operatio
     return {
         data: response?.data,
         errors: response?.errors,
+        {{- if $operation.Operation.IsQuery }}
         refetch,
+        {{- end }}
         {{ if $operation.Operation.HasVariables -}}
+        {{- if $operation.Operation.IsQuery -}}
         refetchVariables,
+        {{- else if $operation.Operation.IsMutation -}}
+        {{ $operation.Operation.Name }}: refetchVariables,
+        {{- end }}
         {{ end -}}
         operationState,
         abort,
