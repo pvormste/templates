@@ -29,7 +29,7 @@ interface OperationParams {
     requiresAuthentication: boolean
     initialVariables?: any
     operationType: OperationType,
-    lazy: boolean,
+    lazy?: boolean,
 }
 
 enum OperationType {
@@ -192,7 +192,7 @@ export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operatio
 export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }} = () => {
     const {client} = useWunderGraph();
     const operationParams: OperationParams = {
-        operationType: OperationType.Query,
+        operationType: OperationType.Mutation,
         requiresAuthentication: true,
     };
     const { response, fetchWithVariables, operationState, abort } = useMutation<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}, operationParams);
