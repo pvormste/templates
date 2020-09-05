@@ -160,7 +160,7 @@ export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operatio
         {{ if $operation.Operation.HasVariables -}}
             initialVariables: params.variables,
         {{ end -}}
-        requiresAuthentication: true,
+        requiresAuthentication: {{ $operation.Operation.Auth.Enabled }},
         {{- if $operation.Operation.IsMutation }}
         lazy: true,
         {{- else }}
@@ -193,7 +193,7 @@ export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operatio
     const {client} = useWunderGraph();
     const operationParams: OperationParams = {
         operationType: OperationType.Mutation,
-        requiresAuthentication: true,
+        requiresAuthentication: {{ $operation.Operation.Auth.Enabled }},
     };
     const { response, fetchWithVariables, operationState, abort } = useMutation<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}, operationParams);
     return {
