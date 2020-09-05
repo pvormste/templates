@@ -53,7 +53,7 @@ export interface QueryParams {
 
 export interface MutationParams {}
 
-const useOperation = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), params: OperationParams) => {
+const useQuery = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), params: OperationParams) => {
     const [response, setResponse] = useState<Response>();
     const [operationState, setOperationState] = useState<OperationState>(OperationState.Init);
     const [lastRefetch, setLastRefetch] = useState<number | undefined>(undefined)
@@ -106,11 +106,53 @@ const useOperation = <Response>(fetch: ((requestConfig?: RequestConfig) => Promi
         setVariables
     }
 }
+
+const useMutation = <Response>(fetch: ((requestConfig?: RequestConfig) => Promise<Response>) | ((variables: any, requestConfig?: RequestConfig) => Promise<Response>), params: OperationParams) => {
+    const [response, setResponse] = useState<Response>();
+    const [operationState, setOperationState] = useState<OperationState>(OperationState.Init);
+    const {isAuthenticated} = useWunderGraph();
+    const abortController = useMemo<AbortController>(() => new AbortController(), [isAuthenticated]);
+    const abort = useCallback(() => {
+        abortController.abort();
+    }, [abortController]);
+    const fetchWithVariables = useCallback((variables: any) => {
+        (async () => {
+            if (params.requiresAuthentication && !isAuthenticated) {
+                setResponse(undefined);
+                setOperationState(OperationState.WaitingForAuthentication);
+                return;
+            }
+            setOperationState(OperationState.Loading);
+            try {
+                const response = variables === undefined ? await fetch({
+                    abort_signal: abortController.signal,
+                }) : await fetch(variables, {
+                    abort_signal: abortController.signal,
+                });
+                if (abortController.signal.aborted) {
+                    return
+                }
+                setOperationState(OperationState.Success);
+                setResponse(response);
+            } catch (e) {
+                setOperationState(OperationState.Error);
+                setResponse(undefined);
+            }
+        })();
+    },[isAuthenticated, abortController]);
+    return {
+        response,
+        operationState,
+        abort,
+        fetchWithVariables
+    }
+}
 {{ range $i, $operation := .OperationsData }}
 export interface {{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}Params extends {{ camelcase $operation.Operation.OperationPrefix }}Params { {{- if $operation.Operation.HasVariables }}
     variables: {{ $operation.Operation.Name }}Variables,
 {{ end -}}}
 
+{{ if $operation.Operation.IsQuery -}}
 export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }} = (params{{ if not $operation.Operation.HasVariables }}?{{ end }}: {{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}Params) => {
     const {client} = useWunderGraph();
     const operationParams: OperationParams = {
@@ -124,7 +166,7 @@ export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operatio
         {{- else }}
         lazy: params{{ if not $operation.Operation.HasVariables }}?{{ end }}.lazy === true,{{ end }}
     };
-    const {response, refetch, operationState, abort{{ if $operation.Operation.HasVariables }}, setVariables{{ end }}} = useOperation<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}, operationParams);
+    const {response, refetch, operationState, abort{{ if $operation.Operation.HasVariables }}, setVariables{{ end }}} = useQuery<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}, operationParams);
     {{- if $operation.Operation.HasVariables }}
     const refetchVariables: (variables: {{ $operation.Operation.Name }}Variables) => void = useCallback((variables: {{ $operation.Operation.Name }}Variables) => {
         setVariables(variables);
@@ -146,4 +188,21 @@ export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operatio
         abort,
     }
 }
+{{ else if $operation.Operation.IsMutation -}}
+export const use{{ camelcase $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }} = () => {
+    const {client} = useWunderGraph();
+    const operationParams: OperationParams = {
+        operationType: OperationType.Query,
+        requiresAuthentication: true,
+    };
+    const { response, fetchWithVariables, operationState, abort } = useMutation<{{ $operation.Operation.Name }}Response>(client.{{ $operation.Operation.OperationPrefix }}{{ $operation.Operation.Name }}, operationParams);
+    return {
+        data: response?.data,
+        errors: response?.errors,
+        {{ $operation.Operation.Name }}: fetchWithVariables,
+        operationState,
+        abort,
+    }
+}
 {{ end }}
+{{- end }}
